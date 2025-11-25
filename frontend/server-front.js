@@ -4,18 +4,20 @@ const path = require('path');
 const app = express();
 const PORT = 80;
 
-// Middleware de Log (opcional, mas bom para debug)
+// --- SEGURANÇA: REMOVE O HEADER X-POWERED-BY ---
+app.disable('x-powered-by'); // <--- A LINHA MÁGICA
+
+// Middleware de Log (opcional)
 app.use((req, res, next) => {
-    console.log(`[REQUEST] ${req.method} ${req.url}`);
+    // console.log(`[REQUEST] ${req.method} ${req.url}`); // Descomente se quiser logs
     next();
 });
 
-// --- CONFIGURAÇÃO PADRÃO ---
-// Como a pasta 'css' agora está DENTRO daqui, o static já a encontra automaticamente.
+// Configuração de Arquivos Estáticos
 app.use(express.static(path.join(__dirname)));
 
 app.listen(PORT, () => {
     console.log('--------------------------------------------------');
-    console.log(`🚀 Frontend Organizado rodando em: http://localhost`);
+    console.log(`🚀 Frontend Seguro rodando em: http://localhost`);
     console.log('--------------------------------------------------');
 });

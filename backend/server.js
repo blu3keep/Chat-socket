@@ -6,24 +6,52 @@ const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const rateLimit = require('express-rate-limit');
+const helmet = require('helmet');
 const pool = require('./db');
 
-// Para fazer requisições ao Cloudflare (Node 18+ tem fetch nativo, se for antigo use axios)
-// Se der erro que fetch não existe, instale: npm install node-fetch
-// Mas assumindo Node recente:
 const app = express();
+
+// --- SEGURANÇA EXTRA ---
+app.disable('x-powered-by'); // <--- GARANTIA FINAL CONTRA O HEADER
+
+// --- HELMET (Cabeçalhos HTTP) ---
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "https://challenges.cloudflare.com", "https://cdn.socket.io"],
+      connectSrc: ["'self'", "http://localhost", "ws://localhost"], 
+      frameSrc: ["'self'", "https://challenges.cloudflare.com"],
+      imgSrc: ["'self'", "data:", "blob:"],
+    },
+  },
+  hidePoweredBy: true // O Helmet também tenta remover
+}));
+
+// --- CORS ---
+const allowedOrigin = process.env.ALLOWED_ORIGIN || "http://localhost";
 app.set('trust proxy', 1);
-app.use(cors());
+app.use(cors({
+  origin: allowedOrigin,
+  methods: ["GET", "POST"]
+}));
+
 app.use(express.json());
 
 const server = http.createServer(app);
-const io = new Server(server, { cors: { origin: '*' } });
+const io = new Server(server, { 
+  cors: { 
+    origin: allowedOrigin,
+    methods: ["GET", "POST"]
+  } 
+});
+
 const SECRET = process.env.JWT_SECRET;
 const TURNSTILE_SECRET = process.env.TURNSTILE_SECRET;
 
 // --- RATE LIMIT ---
 const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, max: 10, // Aumentei um pouco pois temos captcha agora
+  windowMs: 15 * 60 * 1000, max: 10,
   message: { error: "Muitas tentativas. Aguarde 15min." }
 });
 
@@ -39,27 +67,21 @@ const authenticateToken = (req, res, next) => {
   });
 };
 
-// --- FUNÇÃO VERIFICAÇÃO CAPTCHA ---
 async function verifyTurnstile(token) {
     if (!token) return false;
     try {
         const formData = new URLSearchParams();
         formData.append('secret', TURNSTILE_SECRET);
         formData.append('response', token);
-
         const result = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
-            method: 'POST',
-            body: formData,
+            method: 'POST', body: formData,
         });
         const outcome = await result.json();
         return outcome.success;
-    } catch (err) {
-        console.error("Erro Turnstile:", err);
-        return false;
-    }
+    } catch (err) { return false; }
 }
 
-// --- ROTAS AUTH ---
+// --- ROTAS ---
 app.post('/api/auth/register', authLimiter, async (req, res) => {
   const { username, password } = req.body;
   if (!username || !password) return res.status(400).json({ error: 'Dados incompletos' });
@@ -72,13 +94,9 @@ app.post('/api/auth/register', authLimiter, async (req, res) => {
 });
 
 app.post('/api/auth/login', authLimiter, async (req, res) => {
-  const { username, password, captchaToken } = req.body; // Recebe o token do front
-
-  // 1. VERIFICAÇÃO DO CAPTCHA
+  const { username, password, captchaToken } = req.body;
   const isCaptchaValid = await verifyTurnstile(captchaToken);
-  if (!isCaptchaValid) {
-      return res.status(400).json({ error: 'Falha na verificação de segurança (Captcha). Tente novamente.' });
-  }
+  if (!isCaptchaValid) return res.status(400).json({ error: 'Falha na verificação de segurança.' });
 
   try {
     const [users] = await pool.query('SELECT * FROM users WHERE username = ?', [username]);
@@ -91,7 +109,6 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
   } catch (err) { res.status(500).json({ error: 'Erro no servidor' }); }
 });
 
-// --- ROTAS API (Mantidas iguais) ---
 app.get('/api/rooms', authenticateToken, async (req, res) => {
   const [rows] = await pool.query('SELECT * FROM rooms');
   res.json(rows);
@@ -113,15 +130,14 @@ app.get('/api/private-messages/:otherUserId', authenticateToken, async (req, res
     const [msgs] = await pool.query(`
       SELECT dm.id, dm.text, dm.created_at, dm.sender_id, u.username as user_name
       FROM direct_messages dm JOIN users u ON dm.sender_id = u.id
-      WHERE (dm.sender_id = ? AND dm.receiver_id = ?) 
-         OR (dm.sender_id = ? AND dm.receiver_id = ?)
+      WHERE (dm.sender_id = ? AND dm.receiver_id = ?) OR (dm.sender_id = ? AND dm.receiver_id = ?)
       ORDER BY dm.created_at ASC
     `, [myId, otherId, otherId, myId]);
     res.json(msgs);
   } catch (err) { res.status(500).json({ error: 'Erro ao buscar DMs' }); }
 });
 
-// --- SOCKET.IO (Mantido igual) ---
+// --- SOCKET.IO ---
 io.use((socket, next) => {
   const token = socket.handshake.auth.token;
   if (!token) return next(new Error("Autenticação necessária"));
@@ -187,9 +203,7 @@ io.on('connection', async (socket) => {
     } catch (e) { console.error("Erro DM:", e); }
   });
 
-  socket.on('disconnect', async () => {
-    await atualizarListaGlobal();
-  });
+  socket.on('disconnect', async () => { await atualizarListaGlobal(); });
 });
 
 const PORT = process.env.PORT || 3000;
