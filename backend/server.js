@@ -8,13 +8,12 @@ const jwt = require('jsonwebtoken');
 const rateLimit = require('express-rate-limit');
 const helmet = require('helmet');
 const pool = require('./db');
+const { userSchema, messageSchema } = require('./schemas');
 
 const app = express();
 
-// --- SEGURANÇA EXTRA ---
-app.disable('x-powered-by'); // <--- GARANTIA FINAL CONTRA O HEADER
+app.disable('x-powered-by');
 
-// --- HELMET (Cabeçalhos HTTP) ---
 app.use(helmet({
   contentSecurityPolicy: {
     directives: {
@@ -25,10 +24,9 @@ app.use(helmet({
       imgSrc: ["'self'", "data:", "blob:"],
     },
   },
-  hidePoweredBy: true // O Helmet também tenta remover
+  hidePoweredBy: true 
 }));
 
-// --- CORS ---
 const allowedOrigin = process.env.ALLOWED_ORIGIN || "http://localhost";
 app.set('trust proxy', 1);
 app.use(cors({
@@ -49,13 +47,11 @@ const io = new Server(server, {
 const SECRET = process.env.JWT_SECRET;
 const TURNSTILE_SECRET = process.env.TURNSTILE_SECRET;
 
-// --- RATE LIMIT ---
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, max: 10,
   message: { error: "Muitas tentativas. Aguarde 15min." }
 });
 
-// --- MIDDLEWARES ---
 const authenticateToken = (req, res, next) => {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
@@ -81,20 +77,40 @@ async function verifyTurnstile(token) {
     } catch (err) { return false; }
 }
 
-// --- ROTAS ---
-app.post('/api/auth/register', authLimiter, async (req, res) => {
-  const { username, password } = req.body;
-  if (!username || !password) return res.status(400).json({ error: 'Dados incompletos' });
+const validateData = (schema) => (req, res, next) => {
+    const result = schema.safeParse(req.body);
+    if (!result.success) {
+        return res.status(400).json({ error: result.error.issues[0].message });
+    }
+    next();
+};
+
+// --- ROTAS AUTH ---
+
+// PROTEÇÃO TOTAL: Rate Limit + Zod + CAPTCHA
+app.post('/api/auth/register', authLimiter, validateData(userSchema), async (req, res) => {
+  const { username, password, captchaToken } = req.body;
+  
+  // 1. VERIFICAÇÃO DO CAPTCHA NO CADASTRO
+  // Isso impede que scripts criem milhares de contas
+  const isCaptchaValid = await verifyTurnstile(captchaToken);
+  if (!isCaptchaValid) return res.status(400).json({ error: 'Falha na verificação de segurança (Captcha).' });
+
   try {
     const salt = await bcrypt.genSalt(10);
     const hash = await bcrypt.hash(password, salt);
     await pool.query('INSERT INTO users (username, password_hash) VALUES (?, ?)', [username, hash]);
     res.status(201).json({ message: 'Usuário criado!' });
-  } catch (err) { res.status(500).json({ error: 'Erro ao criar usuário' }); }
+  } catch (err) { 
+      if(err.code === 'ER_DUP_ENTRY') return res.status(400).json({ error: 'Este usuário já existe.' });
+      res.status(500).json({ error: 'Erro ao criar usuário.' }); 
+  }
 });
 
-app.post('/api/auth/login', authLimiter, async (req, res) => {
+app.post('/api/auth/login', authLimiter, validateData(userSchema), async (req, res) => {
   const { username, password, captchaToken } = req.body;
+  
+  // Verificação Captcha no Login também
   const isCaptchaValid = await verifyTurnstile(captchaToken);
   if (!isCaptchaValid) return res.status(400).json({ error: 'Falha na verificação de segurança.' });
 
@@ -109,6 +125,7 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
   } catch (err) { res.status(500).json({ error: 'Erro no servidor' }); }
 });
 
+// ... (Resto das rotas API e Socket iguais ao anterior) ...
 app.get('/api/rooms', authenticateToken, async (req, res) => {
   const [rows] = await pool.query('SELECT * FROM rooms');
   res.json(rows);
@@ -137,7 +154,6 @@ app.get('/api/private-messages/:otherUserId', authenticateToken, async (req, res
   } catch (err) { res.status(500).json({ error: 'Erro ao buscar DMs' }); }
 });
 
-// --- SOCKET.IO ---
 io.use((socket, next) => {
   const token = socket.handshake.auth.token;
   if (!token) return next(new Error("Autenticação necessária"));

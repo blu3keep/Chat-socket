@@ -57,9 +57,9 @@ document.getElementById('toggle-auth').addEventListener('click', (e) => {
     document.getElementById('auth-title').innerText = isRegister ? 'Cadastro' : 'Login';
     document.getElementById('auth-submit-btn').innerText = isRegister ? 'Cadastrar' : 'Entrar';
     
-    // Esconde o Captcha no cadastro (Opcional, mas nossa lógica backend só exige no login por enquanto)
-    const captchaContainer = document.querySelector('.cf-turnstile');
-    if(captchaContainer) captchaContainer.style.display = isRegister ? 'none' : 'block';
+    // IMPORTANTE: Removemos o código que escondia o captcha. 
+    // Agora ele aparece sempre, tanto no Login quanto no Cadastro.
+    if (window.turnstile) window.turnstile.reset(); // Reseta o captcha ao trocar de aba
 });
 
 authForm.addEventListener('submit', async (e) => {
@@ -72,9 +72,9 @@ authForm.addEventListener('submit', async (e) => {
     const formData = new FormData(authForm);
     const captchaToken = formData.get('cf-turnstile-response');
 
-    // Se for login e não tiver token, avisa
-    if (!isRegister && !captchaToken) {
-        document.getElementById('auth-error').innerText = "Por favor, complete o desafio de segurança.";
+    // Validação: Exige token em AMBOS os casos (Login e Register)
+    if (!captchaToken) {
+        document.getElementById('auth-error').innerText = "Complete o desafio de segurança.";
         document.getElementById('auth-error').style.display = 'block';
         return;
     }
@@ -83,7 +83,6 @@ authForm.addEventListener('submit', async (e) => {
         const res = await fetch(API_URL + route, {
             method: 'POST', 
             headers: { 'Content-Type': 'application/json' },
-            // Envia o token junto!
             body: JSON.stringify({ 
                 username: user, 
                 password: pass,
@@ -93,13 +92,14 @@ authForm.addEventListener('submit', async (e) => {
         const data = await res.json();
         
         if (!res.ok) {
-            // Se falhar, reseta o Captcha para o usuário tentar de novo
             if (window.turnstile) window.turnstile.reset();
             throw new Error(data.error);
         }
 
         if (isRegister) {
-            alert('Sucesso! Faça login.'); isRegister = false; document.getElementById('toggle-auth').click();
+            alert('Sucesso! Faça login.'); 
+            isRegister = false; 
+            document.getElementById('toggle-auth').click();
         } else {
             localStorage.setItem('chat_token', data.token);
             localStorage.setItem('chat_user', data.username);
@@ -118,8 +118,7 @@ document.getElementById('logout-btn').addEventListener('click', () => {
     localStorage.clear(); location.reload();
 });
 
-// ... (RESTO DO CÓDIGO IGUAL - copiar das respostas anteriores para funções de chat)
-// --- CHAT LOGIC ---
+// ... (RESTO DAS FUNÇÕES DE CHAT - MANTIDAS IGUAIS)
 function iniciarChat() {
     authOverlay.style.display = 'none';
     chatContainer.style.display = 'flex';
