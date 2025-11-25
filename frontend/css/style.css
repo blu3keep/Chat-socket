@@ -1,4 +1,4 @@
-/* --- VARIÁVEIS DE CORES --- */
+/* --- CORES E VARIÁVEIS --- */
 :root {
     /* Modo Claro Moderno */
     --bg-body: #f0f2f5;
@@ -60,6 +60,8 @@ body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; 
 .auth-box input { width: 100%; padding: 12px; margin: 10px 0; border: 1px solid var(--border-color); background: var(--bg-input); color: var(--text-primary); border-radius: 6px; }
 .auth-box button { width: 100%; padding: 12px; background: #0084ff; color: white; border: none; cursor: pointer; border-radius: 6px; font-weight: bold; font-size: 1rem; transition: 0.2s; }
 .auth-box button:hover { background: #0073e6; }
+#auth-error { color: #ff4d4d; font-size: 0.9rem; display: none; margin-top: 10px; }
+.switch-text { margin-top: 15px; font-size: 0.85rem; color: var(--text-secondary); }
 
 /* --- LAYOUT PRINCIPAL --- */
 #chat-container { display: none; height: 100vh; width: 100vw; overflow: hidden; }
@@ -126,11 +128,9 @@ body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; 
 }
 .badge { background: var(--bg-card-user); padding: 2px 6px; border-radius: 10px; font-size: 0.7rem; }
 
-/* --- LISTAS DE NAVEGAÇÃO --- */
-
-/* Salas */
-#room-list { list-style: none; padding: 0; margin: 0 0 20px 0; }
-#room-list li {
+/* LISTAS DE NAVEGAÇÃO */
+.nav-list { list-style: none; padding: 0; margin: 0 0 20px 0; }
+.nav-list li {
     padding: 10px 12px;
     margin-bottom: 2px;
     border-radius: 6px;
@@ -140,46 +140,28 @@ body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; 
     font-weight: 500;
     display: flex; align-items: center;
 }
-#room-list li:hover { background: var(--bg-hover-list); color: var(--text-primary); }
-#room-list li.active { background: var(--bg-active-list); color: var(--text-active-list); }
+.nav-list li:hover { background: var(--bg-hover-list); color: var(--text-primary); }
+.nav-list li.active { background: var(--bg-active-list); color: var(--text-active-list); }
+
+/* Ícone de hashtag antes das salas */
 #room-list li::before { content: '#'; margin-right: 10px; color: var(--text-muted); font-size: 1.1rem; }
 #room-list li.active::before { color: var(--text-active-list); }
 
-/* CORREÇÃO AQUI: Lista de Usuários */
-#users-list { list-style: none; padding: 0; margin: 0; }
-
-#users-list li {
-    padding: 8px 10px;
-    margin-bottom: 2px;
-    border-radius: 6px;
-    display: flex; 
-    align-items: center;
-    cursor: pointer;
-    font-size: 0.9rem;
-    /* Força a cor para evitar transparência */
-    color: var(--text-primary); 
-}
-
-#users-list li:hover { background: var(--bg-hover-list); }
-
+/* Lista de Usuários */
+#users-list li { color: var(--text-primary); } /* Força cor para evitar transparência */
 #users-list li::before {
     content: ''; width: 8px; height: 8px; 
     background-color: #28a745; border-radius: 50%; 
     margin-right: 12px; box-shadow: 0 0 0 2px var(--bg-sidebar);
 }
-
-#users-list li.is-me { 
-    color: var(--text-primary); 
-    font-style: italic; 
-    opacity: 0.8; 
-    cursor: default; 
-}
+#users-list li.is-me { color: var(--text-primary); font-style: italic; opacity: 0.8; cursor: default; }
 
 .dm-hint { font-size: 0.7rem; text-align: center; color: var(--text-muted); margin-top: -10px; }
+.notification-badge { background: #ff3b30; color: white; font-size: 0.7rem; padding: 2px 6px; border-radius: 10px; margin-left: auto; font-weight: bold;}
 
 
 /* --- ÁREA DE CHAT --- */
-#chat-area { flex: 1; display: flex; flex-direction: column; background: var(--bg-container); }
+#chat-area { flex: 1; display: flex; flex-direction: column; background: var(--bg-container); position: relative; }
 
 header { 
     height: 60px;
@@ -229,6 +211,18 @@ header.dm-active { background-color: var(--bg-dm-header); }
 }
 .my-msg .user { display: none; }
 
+/* --- NOVO: ESTILO DA IMAGEM DENTRO DA MENSAGEM --- */
+.message img {
+    max-width: 100%;
+    max-height: 300px;
+    border-radius: 8px;
+    margin-top: 5px;
+    display: block;
+    cursor: pointer;
+    transition: 0.2s;
+}
+.message img:hover { opacity: 0.9; }
+
 
 /* FOOTER / INPUT */
 #typing-indicator { height: 20px; padding: 0 20px; font-size: 0.75rem; color: var(--text-secondary); font-style: italic; }
@@ -254,33 +248,39 @@ header.dm-active { background-color: var(--bg-dm-header); }
 #message-form button:hover { background: var(--bg-input); }
 #message-form button:disabled { color: var(--text-muted); cursor: default; }
 
+/* --- NOVO: BOTÃO DE UPLOAD E PREVIEW --- */
+.upload-btn {
+    cursor: pointer;
+    font-size: 1.5rem;
+    padding: 0 10px;
+    color: var(--text-secondary);
+    transition: 0.2s;
+}
+.upload-btn:hover { color: var(--text-primary); transform: scale(1.1); }
+
+#image-preview-container {
+    position: absolute;
+    bottom: 80px;
+    left: 20px;
+    background: var(--bg-container);
+    padding: 10px;
+    border-radius: 8px;
+    box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+    border: 1px solid var(--border-color);
+    z-index: 10;
+}
+.preview-box { position: relative; display: inline-block; }
+#image-preview { max-height: 150px; max-width: 200px; border-radius: 4px; }
+#cancel-image-btn {
+    position: absolute; top: -8px; right: -8px;
+    background: red; color: white; border: none;
+    border-radius: 50%; width: 20px; height: 20px;
+    font-size: 0.8rem; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+}
+
 /* Scrollbar */
 ::-webkit-scrollbar { width: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.2); border-radius: 10px; }
 body.dark-mode ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); }
-
-.notification-badge {
-    background-color: #ff3b30; /* Vermelho alerta */
-    color: white;
-    font-size: 0.7rem;
-    font-weight: bold;
-    padding: 2px 6px;
-    border-radius: 10px;
-    margin-left: auto; /* Empurra a bolinha para a direita */
-    box-shadow: 0 1px 2px rgba(0,0,0,0.2);
-    min-width: 18px;
-    text-align: center;
-    animation: popIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-}
-
-@keyframes popIn {
-    0% { transform: scale(0); }
-    100% { transform: scale(1); }
-}
-
-/* Ajuste na lista para acomodar a badge */
-#users-list li {
-    /* Garante que o flex distribua o espaço */
-    justify-content: flex-start; 
-}

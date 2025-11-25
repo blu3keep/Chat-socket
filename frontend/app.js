@@ -1,7 +1,5 @@
 const API_URL = 'http://localhost:3000';
 let socket, token;
-
-// --- ESTADO ---
 let activeChatContext = 'room'; 
 let activeChatTarget = null; 
 let myUserId = null; 
@@ -9,8 +7,8 @@ let unreadCounts = {};
 let roomUnreadCounts = {};
 let globalUsersList = []; 
 let globalRoomsList = [];
+let selectedFile = null; // Variável para o arquivo
 
-// Elementos
 const authOverlay = document.getElementById('auth-overlay');
 const chatContainer = document.getElementById('chat-container');
 const authForm = document.getElementById('auth-form');
@@ -24,6 +22,11 @@ const onlineCount = document.getElementById('online-count');
 const themeBtn = document.getElementById('theme-btn');
 const headerTitle = document.getElementById('chat-header-title');
 const backToRoomBtn = document.getElementById('back-to-room-btn');
+// Elementos de Upload
+const fileInput = document.getElementById('file-input');
+const previewContainer = document.getElementById('image-preview-container');
+const imagePreview = document.getElementById('image-preview');
+const cancelImageBtn = document.getElementById('cancel-image-btn');
 
 let typingTimeout = undefined;
 
@@ -34,7 +37,6 @@ document.addEventListener('DOMContentLoaded', () => {
     } else {
         themeBtn.innerText = 'Modo Escuro';
     }
-
     token = localStorage.getItem('chat_token');
     if (token) iniciarChat();
     else authOverlay.style.display = 'flex';
@@ -56,10 +58,7 @@ document.getElementById('toggle-auth').addEventListener('click', (e) => {
     e.preventDefault(); isRegister = !isRegister;
     document.getElementById('auth-title').innerText = isRegister ? 'Cadastro' : 'Login';
     document.getElementById('auth-submit-btn').innerText = isRegister ? 'Cadastrar' : 'Entrar';
-    
-    // IMPORTANTE: Removemos o código que escondia o captcha. 
-    // Agora ele aparece sempre, tanto no Login quanto no Cadastro.
-    if (window.turnstile) window.turnstile.reset(); // Reseta o captcha ao trocar de aba
+    if (window.turnstile) window.turnstile.reset();
 });
 
 authForm.addEventListener('submit', async (e) => {
@@ -67,12 +66,9 @@ authForm.addEventListener('submit', async (e) => {
     const user = document.getElementById('username-input').value;
     const pass = document.getElementById('password-input').value;
     const route = isRegister ? '/api/auth/register' : '/api/auth/login';
-
-    // PEGA O TOKEN DO CAPTCHA
     const formData = new FormData(authForm);
     const captchaToken = formData.get('cf-turnstile-response');
 
-    // Validação: Exige token em AMBOS os casos (Login e Register)
     if (!captchaToken) {
         document.getElementById('auth-error').innerText = "Complete o desafio de segurança.";
         document.getElementById('auth-error').style.display = 'block';
@@ -81,25 +77,16 @@ authForm.addEventListener('submit', async (e) => {
 
     try {
         const res = await fetch(API_URL + route, {
-            method: 'POST', 
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-                username: user, 
-                password: pass,
-                captchaToken: captchaToken 
-            })
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: user, password: pass, captchaToken: captchaToken })
         });
         const data = await res.json();
-        
         if (!res.ok) {
             if (window.turnstile) window.turnstile.reset();
             throw new Error(data.error);
         }
-
         if (isRegister) {
-            alert('Sucesso! Faça login.'); 
-            isRegister = false; 
-            document.getElementById('toggle-auth').click();
+            alert('Sucesso! Faça login.'); isRegister = false; document.getElementById('toggle-auth').click();
         } else {
             localStorage.setItem('chat_token', data.token);
             localStorage.setItem('chat_user', data.username);
@@ -118,7 +105,6 @@ document.getElementById('logout-btn').addEventListener('click', () => {
     localStorage.clear(); location.reload();
 });
 
-// ... (RESTO DAS FUNÇÕES DE CHAT - MANTIDAS IGUAIS)
 function iniciarChat() {
     authOverlay.style.display = 'none';
     chatContainer.style.display = 'flex';
@@ -127,19 +113,23 @@ function iniciarChat() {
     document.getElementById('user-initial').innerText = username.charAt(0).toUpperCase();
     myUserId = parseInt(localStorage.getItem('chat_userid'));
     socket = io(API_URL, { auth: { token } });
+    
     socket.on('connect_error', () => { alert('Sessão expirada'); document.getElementById('logout-btn').click(); });
+    
     socket.on('newMessage', (msg) => {
         if (activeChatContext === 'room' && msg.room_id == activeChatTarget) {
             renderMessage(msg, false);
             typingIndicator.textContent = '';
         }
     });
+    
     socket.on('roomNotification', (data) => {
         if (activeChatContext === 'room' && activeChatTarget == data.roomId) return;
         if (!roomUnreadCounts[data.roomId]) roomUnreadCounts[data.roomId] = 0;
         roomUnreadCounts[data.roomId]++;
         renderRoomList();
     });
+    
     socket.on('privateMessage', (msg) => {
         if (activeChatContext === 'private' && (msg.sender_id == activeChatTarget || msg.sender_id == myUserId)) {
             renderMessage(msg, true);
@@ -150,16 +140,16 @@ function iniciarChat() {
             renderUserList(globalUsersList);
         }
     });
+    
     socket.on('displayTyping', (data) => {
-        if (activeChatContext === 'room' && data.roomId == activeChatTarget) {
-            typingIndicator.textContent = `${data.username} está digitando...`;
-        } else if (activeChatContext === 'private' && data.userId == activeChatTarget) {
+        if ((activeChatContext === 'room' && data.roomId == activeChatTarget) || (activeChatContext === 'private' && data.userId == activeChatTarget)) {
             typingIndicator.textContent = `${data.username} está digitando...`;
         }
     });
     socket.on('hideTyping', (data) => {
-        if (activeChatContext === 'room' && data.roomId == activeChatTarget) typingIndicator.textContent = '';
-        else if (activeChatContext === 'private' && data.userId == activeChatTarget) typingIndicator.textContent = '';
+        if ((activeChatContext === 'room' && data.roomId == activeChatTarget) || (activeChatContext === 'private' && data.userId == activeChatTarget)) {
+            typingIndicator.textContent = '';
+        }
     });
     socket.on('globalUsers', (users) => { globalUsersList = users; renderUserList(users); });
     socket.on('messageError', (msg) => alert("⚠️ " + msg));
@@ -257,6 +247,28 @@ function renderUserList(users) {
     });
 }
 
+// LÓGICA DE SELEÇÃO DE ARQUIVO
+fileInput.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (file) {
+        selectedFile = file;
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            imagePreview.src = e.target.result;
+            previewContainer.style.display = 'block';
+        };
+        reader.readAsDataURL(file);
+        msgForm.querySelector('button').disabled = false;
+    }
+});
+
+cancelImageBtn.addEventListener('click', () => {
+    selectedFile = null;
+    fileInput.value = '';
+    previewContainer.style.display = 'none';
+    if(msgInput.value.trim() === '') msgForm.querySelector('button').disabled = true;
+});
+
 function renderMessage(msg, isPrivate) {
     const div = document.createElement('div');
     const euSou = msg.user_name === localStorage.getItem('chat_user');
@@ -265,27 +277,77 @@ function renderMessage(msg, isPrivate) {
     const userSpan = document.createElement('span');
     userSpan.classList.add('user');
     userSpan.textContent = msg.user_name + (isPrivate ? ' • Privado' : '');
-    const textNode = document.createTextNode(" " + (msg.text || ""));
-    div.appendChild(userSpan); div.appendChild(textNode);
+    div.appendChild(userSpan);
+
+    // SE TIVER IMAGEM
+    if (msg.image_url) {
+        const img = document.createElement('img');
+        img.src = API_URL + msg.image_url; 
+        img.onclick = () => window.open(API_URL + msg.image_url, '_blank'); 
+        div.appendChild(img);
+    }
+
+    // SE TIVER TEXTO
+    if (msg.text) {
+        const textNode = document.createTextNode(" " + msg.text);
+        div.appendChild(textNode);
+    }
+
     msgsBox.appendChild(div);
     msgsBox.scrollTop = msgsBox.scrollHeight;
 }
 
-msgForm.addEventListener('submit', (e) => {
+msgForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     const text = msgInput.value;
-    if (text && activeChatTarget) {
-        if (activeChatContext === 'room') { socket.emit('sendMessage', { roomId: activeChatTarget, text }); } 
-        else { socket.emit('sendPrivateMessage', { toUserId: activeChatTarget, text }); }
-        clearTimeout(typingTimeout);
-        socket.emit('stopTyping', activeChatTarget);
-        msgInput.value = '';
+    
+    if (!text && !selectedFile) return;
+
+    let imageUrl = null;
+
+    // 1. Upload
+    if (selectedFile) {
+        const formData = new FormData();
+        formData.append('image', selectedFile);
+        try {
+            const res = await fetch(`${API_URL}/api/upload`, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${token}` },
+                body: formData
+            });
+            if (!res.ok) throw new Error('Falha no upload');
+            const data = await res.json();
+            imageUrl = data.imageUrl;
+        } catch (err) {
+            alert("Erro ao enviar imagem: " + err.message);
+            return;
+        }
     }
+
+    // 2. Socket
+    const payload = { 
+        roomId: activeChatTarget, 
+        toUserId: activeChatTarget,
+        text: text,
+        imageUrl: imageUrl 
+    };
+
+    if (activeChatContext === 'room') socket.emit('sendMessage', payload);
+    else socket.emit('sendPrivateMessage', payload);
+
+    clearTimeout(typingTimeout);
+    socket.emit('stopTyping', activeChatTarget);
+    msgInput.value = '';
+    selectedFile = null;
+    fileInput.value = '';
+    previewContainer.style.display = 'none';
+    msgForm.querySelector('button').disabled = true;
 });
 
 msgInput.addEventListener('input', () => {
+    if(msgInput.value.trim() !== '') msgForm.querySelector('button').disabled = false;
     if (activeChatContext === 'room') socket.emit('typing', activeChatTarget);
-    else if (activeChatContext === 'private') socket.emit('typing', activeChatTarget);
+    else socket.emit('typing', activeChatTarget);
     if (typingTimeout) clearTimeout(typingTimeout);
     typingTimeout = setTimeout(() => { socket.emit('stopTyping', activeChatTarget); }, 2000);
 });

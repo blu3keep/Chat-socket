@@ -9,11 +9,16 @@ const rateLimit = require('express-rate-limit');
 const helmet = require('helmet');
 const pool = require('./db');
 const { userSchema, messageSchema } = require('./schemas');
+const multer = require('multer');
+const path = require('path');
+const { v4: uuidv4 } = require('uuid');
 
 const app = express();
 
+// --- SEGURANÇA EXTRA ---
 app.disable('x-powered-by');
 
+// --- HELMET (HEADERS) ---
 app.use(helmet({
   contentSecurityPolicy: {
     directives: {
@@ -21,12 +26,15 @@ app.use(helmet({
       scriptSrc: ["'self'", "'unsafe-inline'", "https://challenges.cloudflare.com", "https://cdn.socket.io"],
       connectSrc: ["'self'", "http://localhost", "ws://localhost"], 
       frameSrc: ["'self'", "https://challenges.cloudflare.com"],
-      imgSrc: ["'self'", "data:", "blob:"],
+      // IMPORTANTE: Permite carregar imagens do próprio servidor e blobs
+      imgSrc: ["'self'", "data:", "blob:", "http://localhost:3000"], 
     },
   },
-  hidePoweredBy: true 
+  hidePoweredBy: true,
+  crossOriginResourcePolicy: { policy: "cross-origin" }
 }));
 
+// --- CORS ---
 const allowedOrigin = process.env.ALLOWED_ORIGIN || "http://localhost";
 app.set('trust proxy', 1);
 app.use(cors({
@@ -36,17 +44,44 @@ app.use(cors({
 
 app.use(express.json());
 
+// --- SERVIR IMAGENS ESTATICAMENTE ---
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
 const server = http.createServer(app);
 const io = new Server(server, { 
-  cors: { 
-    origin: allowedOrigin,
-    methods: ["GET", "POST"]
-  } 
+  cors: { origin: allowedOrigin, methods: ["GET", "POST"] } 
 });
 
 const SECRET = process.env.JWT_SECRET;
 const TURNSTILE_SECRET = process.env.TURNSTILE_SECRET;
 
+// --- CONFIGURAÇÃO UPLOAD (MULTER) ---
+const storage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        cb(null, 'uploads/');
+    },
+    filename: (req, file, cb) => {
+        // Sanitização: Usa UUID + extensão original
+        const uniqueName = uuidv4() + path.extname(file.originalname);
+        cb(null, uniqueName);
+    }
+});
+
+const upload = multer({
+    storage: storage,
+    limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
+    fileFilter: (req, file, cb) => {
+        const filetypes = /jpeg|jpg|png|gif/;
+        const mimetype = filetypes.test(file.mimetype);
+        const extname = filetypes.test(path.extname(file.originalname).toLowerCase());
+        if (mimetype && extname) {
+            return cb(null, true);
+        }
+        cb(new Error('Apenas imagens são permitidas!'));
+    }
+});
+
+// --- RATE LIMIT & AUTH ---
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, max: 10,
   message: { error: "Muitas tentativas. Aguarde 15min." }
@@ -69,9 +104,7 @@ async function verifyTurnstile(token) {
         const formData = new URLSearchParams();
         formData.append('secret', TURNSTILE_SECRET);
         formData.append('response', token);
-        const result = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
-            method: 'POST', body: formData,
-        });
+        const result = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', { method: 'POST', body: formData });
         const outcome = await result.json();
         return outcome.success;
     } catch (err) { return false; }
@@ -79,53 +112,49 @@ async function verifyTurnstile(token) {
 
 const validateData = (schema) => (req, res, next) => {
     const result = schema.safeParse(req.body);
-    if (!result.success) {
-        return res.status(400).json({ error: result.error.issues[0].message });
-    }
+    if (!result.success) return res.status(400).json({ error: result.error.issues[0].message });
     next();
 };
 
-// --- ROTAS AUTH ---
+// --- ROTAS HTTP ---
 
-// PROTEÇÃO TOTAL: Rate Limit + Zod + CAPTCHA
+// Rota de Upload
+app.post('/api/upload', authenticateToken, upload.single('image'), (req, res) => {
+    if (!req.file) return res.status(400).json({ error: 'Nenhum arquivo enviado' });
+    const imageUrl = `/uploads/${req.file.filename}`;
+    res.json({ imageUrl });
+}, (err, req, res, next) => {
+    res.status(400).json({ error: err.message });
+});
+
 app.post('/api/auth/register', authLimiter, validateData(userSchema), async (req, res) => {
   const { username, password, captchaToken } = req.body;
-  
-  // 1. VERIFICAÇÃO DO CAPTCHA NO CADASTRO
-  // Isso impede que scripts criem milhares de contas
   const isCaptchaValid = await verifyTurnstile(captchaToken);
-  if (!isCaptchaValid) return res.status(400).json({ error: 'Falha na verificação de segurança (Captcha).' });
-
+  if (!isCaptchaValid) return res.status(400).json({ error: 'Falha no Captcha.' });
   try {
     const salt = await bcrypt.genSalt(10);
     const hash = await bcrypt.hash(password, salt);
     await pool.query('INSERT INTO users (username, password_hash) VALUES (?, ?)', [username, hash]);
     res.status(201).json({ message: 'Usuário criado!' });
   } catch (err) { 
-      if(err.code === 'ER_DUP_ENTRY') return res.status(400).json({ error: 'Este usuário já existe.' });
+      if(err.code === 'ER_DUP_ENTRY') return res.status(400).json({ error: 'Usuário já existe.' });
       res.status(500).json({ error: 'Erro ao criar usuário.' }); 
   }
 });
 
 app.post('/api/auth/login', authLimiter, validateData(userSchema), async (req, res) => {
   const { username, password, captchaToken } = req.body;
-  
-  // Verificação Captcha no Login também
   const isCaptchaValid = await verifyTurnstile(captchaToken);
-  if (!isCaptchaValid) return res.status(400).json({ error: 'Falha na verificação de segurança.' });
-
+  if (!isCaptchaValid) return res.status(400).json({ error: 'Falha no Captcha.' });
   try {
     const [users] = await pool.query('SELECT * FROM users WHERE username = ?', [username]);
     const user = users[0];
-    if (!user || !(await bcrypt.compare(password, user.password_hash))) {
-        return res.status(400).json({ error: 'Credenciais inválidas' });
-    }
+    if (!user || !(await bcrypt.compare(password, user.password_hash))) return res.status(400).json({ error: 'Credenciais inválidas' });
     const token = jwt.sign({ id: user.id, username: user.username }, SECRET, { expiresIn: '2h' });
     res.json({ token, username: user.username, userId: user.id });
   } catch (err) { res.status(500).json({ error: 'Erro no servidor' }); }
 });
 
-// ... (Resto das rotas API e Socket iguais ao anterior) ...
 app.get('/api/rooms', authenticateToken, async (req, res) => {
   const [rows] = await pool.query('SELECT * FROM rooms');
   res.json(rows);
@@ -133,7 +162,7 @@ app.get('/api/rooms', authenticateToken, async (req, res) => {
 
 app.get('/api/messages/:roomId', authenticateToken, async (req, res) => {
   const [msgs] = await pool.query(`
-    SELECT m.id, m.room_id, m.text, m.created_at, u.username as user_name, m.user_id 
+    SELECT m.id, m.room_id, m.text, m.image_url, m.created_at, u.username as user_name, m.user_id 
     FROM messages m JOIN users u ON m.user_id = u.id
     WHERE m.room_id = ? ORDER BY m.created_at ASC
   `, [req.params.roomId]);
@@ -145,7 +174,7 @@ app.get('/api/private-messages/:otherUserId', authenticateToken, async (req, res
   const otherId = req.params.otherUserId;
   try {
     const [msgs] = await pool.query(`
-      SELECT dm.id, dm.text, dm.created_at, dm.sender_id, u.username as user_name
+      SELECT dm.id, dm.text, dm.image_url, dm.created_at, dm.sender_id, u.username as user_name
       FROM direct_messages dm JOIN users u ON dm.sender_id = u.id
       WHERE (dm.sender_id = ? AND dm.receiver_id = ?) OR (dm.sender_id = ? AND dm.receiver_id = ?)
       ORDER BY dm.created_at ASC
@@ -154,6 +183,7 @@ app.get('/api/private-messages/:otherUserId', authenticateToken, async (req, res
   } catch (err) { res.status(500).json({ error: 'Erro ao buscar DMs' }); }
 });
 
+// --- SOCKET.IO ---
 io.use((socket, next) => {
   const token = socket.handshake.auth.token;
   if (!token) return next(new Error("Autenticação necessária"));
@@ -188,7 +218,8 @@ io.on('connection', async (socket) => {
   socket.on('typing', (roomId) => socket.to(roomId).emit('displayTyping', { username: socket.user.username, roomId, userId: socket.user.id }));
   socket.on('stopTyping', (roomId) => socket.to(roomId).emit('hideTyping', { roomId, userId: socket.user.id }));
 
-  socket.on('sendMessage', async ({ roomId, text }) => {
+  // MENSAGEM COM IMAGEM
+  socket.on('sendMessage', async ({ roomId, text, imageUrl }) => {
     const now = Date.now();
     if (socket.blockedUntil && now < socket.blockedUntil) {
          const remaining = Math.ceil((socket.blockedUntil - now) / 1000);
@@ -201,19 +232,22 @@ io.on('connection', async (socket) => {
         return socket.emit('messageError', `🚨 SPAM! Silenciado por 5 minutos.`);
     }
 
+    if (!text && !imageUrl) return;
+
     try {
-      const [result] = await pool.query('INSERT INTO messages (room_id, user_id, text) VALUES (?, ?, ?)', [roomId, socket.user.id, text]);
-      const [rows] = await pool.query(`SELECT m.id, m.room_id, m.text, m.created_at, u.username as user_name FROM messages m JOIN users u ON m.user_id = u.id WHERE m.id = ?`, [result.insertId]);
+      const [result] = await pool.query('INSERT INTO messages (room_id, user_id, text, image_url) VALUES (?, ?, ?, ?)', [roomId, socket.user.id, text || "", imageUrl || null]);
+      const [rows] = await pool.query(`SELECT m.id, m.room_id, m.text, m.image_url, m.created_at, u.username as user_name FROM messages m JOIN users u ON m.user_id = u.id WHERE m.id = ?`, [result.insertId]);
       io.to(roomId).emit('newMessage', rows[0]);
       io.emit('roomNotification', { roomId: roomId });
     } catch (e) { console.error(e); }
   });
 
-  socket.on('sendPrivateMessage', async ({ toUserId, text }) => {
+  socket.on('sendPrivateMessage', async ({ toUserId, text, imageUrl }) => {
+    if (!text && !imageUrl) return;
     try {
       const fromId = socket.user.id;
-      const [result] = await pool.query('INSERT INTO direct_messages (sender_id, receiver_id, text) VALUES (?, ?, ?)', [fromId, toUserId, text]);
-      const msgData = { id: result.insertId, text: text, sender_id: fromId, user_name: socket.user.username, created_at: new Date() };
+      const [result] = await pool.query('INSERT INTO direct_messages (sender_id, receiver_id, text, image_url) VALUES (?, ?, ?, ?)', [fromId, toUserId, text || "", imageUrl || null]);
+      const msgData = { id: result.insertId, text: text || "", image_url: imageUrl || null, sender_id: fromId, user_name: socket.user.username, created_at: new Date() };
       io.to(toUserId.toString()).emit('privateMessage', msgData);
       socket.emit('privateMessage', msgData); 
     } catch (e) { console.error("Erro DM:", e); }
