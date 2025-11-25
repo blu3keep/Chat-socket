@@ -1,0 +1,19 @@
+# --- SEGURANÇA (Obrigatório) ---
+.env
+.env.local
+.env.development
+.env.test
+.env.production
+
+# --- DEPENDÊNCIAS (Não subir, é muito pesado) ---
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# --- SISTEMA OPERACIONAL (Lixo de sistema) ---
+.DS_Store
+Thumbs.db
+
+# --- IDE (Configurações do seu editor) ---
+.vscode/
+.idea/

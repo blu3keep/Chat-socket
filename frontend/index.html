@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat Seguro</title>
+    <link rel="stylesheet" href="/css/style.css">
+    <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+</head>
+<body>
+    <div id="auth-overlay">
+        <div class="auth-box">
+            <h2 id="auth-title">Login</h2>
+            <form id="auth-form">
+                <input type="text" id="username-input" placeholder="Usuário" required>
+                <input type="password" id="password-input" placeholder="Senha" required>
+                
+                <div class="cf-turnstile" 
+                     data-sitekey="0x4AAAAAACC6DTghVIo-u0DN" 
+                     data-theme="light"></div>
+                
+                <button type="submit" id="auth-submit-btn">Entrar</button>
+            </form>
+            <p class="switch-text">
+                <span id="switch-msg">Não tem conta?</span>
+                <a href="#" id="toggle-auth">Cadastre-se</a>
+            </p>
+            <p id="auth-error"></p>
+        </div>
+    </div>
+
+    <div id="chat-container">
+        <aside id="sidebar">
+            <div class="user-card">
+                <div class="avatar-circle"><span id="user-initial">U</span></div>
+                <div class="user-details"><span id="display-username">Usuário</span><span class="status-text">Online</span></div>
+            </div>
+            <div class="sidebar-actions">
+                <button id="theme-btn">Modo Escuro</button>
+                <button id="logout-btn">Sair</button>
+            </div>
+            <div class="section-label">SALAS DISPONÍVEIS</div>
+            <ul id="room-list" class="nav-list"></ul>
+            <div class="online-users-section">
+                <div class="section-label">ONLINE AGORA <span id="online-count" class="badge">0</span></div>
+                <ul id="users-list" class="nav-list"></ul>
+                <p class="dm-hint">Clique em um usuário para DM</p>
+            </div>
+        </aside>
+        <main id="chat-area">
+            <header>
+                <h2 id="chat-header-title">Selecione uma sala</h2>
+                <button id="back-to-room-btn" style="display:none;">Voltar</button>
+            </header>
+            <div id="messages-box"></div>
+            <div id="typing-indicator"></div>
+            <form id="message-form">
+                <input type="text" id="message-input" placeholder="Digite sua mensagem..." disabled autocomplete="off">
+                <button type="submit" disabled>
+                    <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"></path></svg>
+                </button>
+            </form>
+        </main>
+    </div>
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
