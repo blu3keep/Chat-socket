@@ -1,6 +1,7 @@
-const API_URL = 'https://chat.lab-offsec.com.br';
+const API_URL = 'https://chat.seudominio.com'; // <--- SEU DOMINIO
 let socket, token;
 
+// --- ESTADO ---
 let activeChatContext = 'room'; 
 let activeChatTarget = null; 
 let myUserId = null; 
@@ -11,9 +12,7 @@ let globalRoomsList = [];
 let selectedFile = null;
 let isRegister = false;
 
-let typingTimeout = undefined;
-
-
+// ... (Elementos DOM - Mantidos iguais ao anterior) ...
 let authOverlay, chatContainer, authForm, authTitle, authSubmitBtn, toggleAuthBtn, 
     authError, switchMsg, usernameInput, passwordInput; 
 let roomList, msgsBox, msgInput, msgForm, typingIndicator, usersList, 
@@ -21,7 +20,7 @@ let roomList, msgsBox, msgInput, msgForm, typingIndicator, usersList,
     previewContainer, imagePreview, cancelImageBtn;
 
 document.addEventListener('DOMContentLoaded', () => {
-    
+    // Carregar elementos
     authOverlay = document.getElementById('auth-overlay');
     chatContainer = document.getElementById('chat-container');
     authForm = document.getElementById('auth-form');
@@ -29,10 +28,9 @@ document.addEventListener('DOMContentLoaded', () => {
     authSubmitBtn = document.getElementById('auth-submit-btn');
     toggleAuthBtn = document.getElementById('toggle-auth');
     authError = document.getElementById('auth-error');
-    switchMsg = document.getElementById('switch-msg');
+    switchMsg = document.querySelector('.switch-text span'); 
     usernameInput = document.getElementById('username-input');
     passwordInput = document.getElementById('password-input');
-    
     roomList = document.getElementById('room-list');
     msgsBox = document.getElementById('messages-box');
     msgInput = document.getElementById('message-input');
@@ -48,7 +46,6 @@ document.addEventListener('DOMContentLoaded', () => {
     imagePreview = document.getElementById('image-preview');
     cancelImageBtn = document.getElementById('cancel-image-btn');
 
-    
     if (localStorage.getItem('theme') === 'dark') {
         document.body.classList.add('dark-mode');
         themeBtn.innerText = 'Modo Claro';
@@ -56,135 +53,77 @@ document.addEventListener('DOMContentLoaded', () => {
         themeBtn.innerText = 'Modo Escuro';
     }
 
-    
     themeBtn.addEventListener('click', toggleTheme);
-    toggleAuthBtn.addEventListener('click', toggleAuthMode);
+    toggleAuthBtn.addEventListener('click', (e) => {
+        e.preventDefault(); isRegister = !isRegister; updateAuthUI();
+        if (window.turnstile) window.turnstile.reset();
+    });
     authForm.addEventListener('submit', handleAuthSubmit);
     document.getElementById('logout-btn').addEventListener('click', logout);
-    
-    // Listeners do Chat
     msgInput.addEventListener('input', handleTyping);
     msgForm.addEventListener('submit', handleMessageSubmit);
     fileInput.addEventListener('change', handleFileSelect);
     cancelImageBtn.addEventListener('click', cancelFileSelect);
+    
+    // --- BOTÃO VOLTAR (MOBILE) ---
     backToRoomBtn.addEventListener('click', () => {
-        if (globalRoomsList.length > 0) entrarSala(globalRoomsList[0].id, globalRoomsList[0].name);
+        // Remove a classe que força o chat a aparecer, voltando para a lista
+        document.body.classList.remove('mobile-chat-open');
+        // No Desktop, isso não faz nada visualmente porque o CSS ignora
+        // Se estiver em DM, volta pra sala padrão também
+        if(activeChatContext === 'private' && globalRoomsList.length > 0) {
+             entrarSala(globalRoomsList[0].id, globalRoomsList[0].name);
+        }
     });
 
-    
     token = localStorage.getItem('chat_token');
-    if (token) {
-        iniciarChat();
-    } else {
-        authOverlay.style.display = 'flex';
-        
-        updateAuthUI();
-    }
+    if (token) iniciarChat();
+    else { authOverlay.style.display = 'flex'; updateAuthUI(); }
 });
 
-
-
+// ... (Funções de Auth e Theme - Mantidas iguais) ...
 function toggleTheme() {
     document.body.classList.toggle('dark-mode');
     const isDark = document.body.classList.contains('dark-mode');
     localStorage.setItem('theme', isDark ? 'dark' : 'light');
     themeBtn.innerText = isDark ? 'Modo Claro' : 'Modo Escuro';
 }
-
-function toggleAuthMode(e) {
-    if (e) e.preventDefault();
-    isRegister = !isRegister;
-    updateAuthUI();
-    if (window.turnstile) window.turnstile.reset();
-}
-
 function updateAuthUI() {
-    
-    if (isRegister) {
-        authTitle.innerText = 'Cadastro';
-        authSubmitBtn.innerText = 'Cadastrar';
-        switchMsg.innerText = 'Já tem conta?';
-        toggleAuthBtn.innerText = 'Faça Login';
-    } else {
-        authTitle.innerText = 'Login';
-        authSubmitBtn.innerText = 'Entrar';
-        switchMsg.innerText = 'Não tem conta?';
-        toggleAuthBtn.innerText = 'Cadastre-se';
-    }
     authError.style.display = 'none';
+    if (isRegister) {
+        authTitle.innerText = 'Cadastro'; authSubmitBtn.innerText = 'Cadastrar'; 
+        if(switchMsg) switchMsg.innerText = 'Já tem conta?'; toggleAuthBtn.innerText = 'Faça Login';
+    } else {
+        authTitle.innerText = 'Login'; authSubmitBtn.innerText = 'Entrar'; 
+        if(switchMsg) switchMsg.innerText = 'Não tem conta?'; toggleAuthBtn.innerText = 'Cadastre-se';
+    }
 }
-
 async function handleAuthSubmit(e) {
     e.preventDefault();
-    const user = usernameInput.value;
-    const pass = passwordInput.value;
-    
-    
+    const user = usernameInput.value; const pass = passwordInput.value;
     const formData = new FormData(authForm);
     const captchaToken = formData.get('cf-turnstile-response');
-
-    if (!captchaToken) {
-        authError.innerText = "Complete o desafio de segurança.";
-        authError.style.display = 'block';
-        return;
-    }
-
+    if (!captchaToken) { authError.innerText = "Complete o desafio."; authError.style.display = 'block'; return; }
     const endpoint = isRegister ? '/api/auth/register' : '/api/auth/login';
-
     try {
         const res = await fetch(API_URL + endpoint, {
-            method: 'POST', 
-            headers: { 'Content-Type': 'application/json' },
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ username: user, password: pass, captchaToken: captchaToken })
         });
         const data = await res.json();
-        
-        if (!res.ok) {
-            if (window.turnstile) window.turnstile.reset();
-            throw new Error(data.error);
-        }
-
-        // SUCESSO
+        if (!res.ok) { if (window.turnstile) window.turnstile.reset(); throw new Error(data.error); }
         if (isRegister) {
-            alert('Conta criada com sucesso! Faça login agora.');
-            
-            
-            setTimeout(() => {
-                
-                isRegister = false;
-                
-                
-                updateAuthUI();
-                
-                
-                passwordInput.value = '';
-                
-                if (window.turnstile) window.turnstile.reset();
-                
-                console.log("Interface atualizada para Login.");
-            }, 100);
-
+            authError.innerText = "✅ Sucesso! Redirecionando..."; authError.className = "auth-success"; authError.style.display = "block";
+            setTimeout(() => { isRegister = false; updateAuthUI(); passwordInput.value = ''; if (window.turnstile) window.turnstile.reset(); }, 1500);
         } else {
-            // Login
-            localStorage.setItem('chat_token', data.token);
-            localStorage.setItem('chat_user', data.username);
-            localStorage.setItem('chat_userid', data.userId);
-            token = data.token;
-            iniciarChat();
+            localStorage.setItem('chat_token', data.token); localStorage.setItem('chat_user', data.username); localStorage.setItem('chat_userid', data.userId);
+            token = data.token; iniciarChat();
         }
-    } catch (err) { 
-        authError.innerText = err.message;
-        authError.style.display = 'block';
-    }
+    } catch (err) { authError.className = ""; authError.innerText = err.message; authError.style.display = 'block'; authError.style.color = '#ff4d4d'; }
 }
+function logout() { localStorage.clear(); location.reload(); }
 
-function logout() {
-    localStorage.clear();
-    location.reload();
-}
-
-
-
+// ... (Funções de Chat) ...
 function iniciarChat() {
     authOverlay.style.display = 'none';
     chatContainer.style.display = 'flex';
@@ -192,15 +131,11 @@ function iniciarChat() {
     document.getElementById('display-username').innerText = username;
     document.getElementById('user-initial').innerText = username.charAt(0).toUpperCase();
     myUserId = parseInt(localStorage.getItem('chat_userid'));
-    
     socket = io(API_URL, { auth: { token } });
-    
     socket.on('connect_error', () => { alert('Sessão expirada'); logout(); });
-    
     socket.on('newMessage', (msg) => {
         if (activeChatContext === 'room' && msg.room_id == activeChatTarget) {
-            renderMessage(msg, false);
-            typingIndicator.textContent = '';
+            renderMessage(msg, false); typingIndicator.textContent = '';
         }
     });
     socket.on('roomNotification', (data) => {
@@ -211,8 +146,7 @@ function iniciarChat() {
     });
     socket.on('privateMessage', (msg) => {
         if (activeChatContext === 'private' && (msg.sender_id == activeChatTarget || msg.sender_id == myUserId)) {
-            renderMessage(msg, true);
-            typingIndicator.textContent = '';
+            renderMessage(msg, true); typingIndicator.textContent = '';
         } else if (msg.sender_id !== myUserId) {
             if (!unreadCounts[msg.sender_id]) unreadCounts[msg.sender_id] = 0;
             unreadCounts[msg.sender_id]++;
@@ -239,7 +173,11 @@ async function carregarSalas() {
     const rooms = await res.json();
     globalRoomsList = rooms;
     renderRoomList();
-    if (!activeChatTarget && rooms.length > 0) entrarSala(rooms[0].id, rooms[0].name);
+    // No mobile, não entra automaticamente na sala para deixar o usuário escolher
+    // Mas no desktop, podemos manter. Vamos fazer uma verificação simples de largura
+    if (!activeChatTarget && rooms.length > 0 && window.innerWidth > 768) {
+        entrarSala(rooms[0].id, rooms[0].name);
+    }
 }
 
 function renderRoomList() {
@@ -249,7 +187,6 @@ function renderRoomList() {
         li.innerText = room.name;
         if (activeChatContext === 'room' && activeChatTarget === room.id) li.classList.add('active');
         li.onclick = () => entrarSala(room.id, room.name);
-        li.id = `room-li-${room.id}`;
         if (roomUnreadCounts[room.id] && roomUnreadCounts[room.id] > 0) {
              const badge = document.createElement('span');
              badge.classList.add('notification-badge');
@@ -266,9 +203,16 @@ async function entrarSala(id, name) {
     activeChatContext = 'room';
     activeChatTarget = id;
     renderRoomList();
+    
+    // --- RESPONSIVIDADE MOBILE ---
+    document.body.classList.add('mobile-chat-open'); // Abre o chat
+    
     headerTitle.innerText = `# ${name}`;
     document.querySelector('header').classList.remove('dm-active');
-    backToRoomBtn.style.display = 'none';
+    
+    // Texto do botão voltar muda dependendo do contexto? Não, sempre "Voltar"
+    backToRoomBtn.innerText = "Voltar";
+    
     msgInput.disabled = false; msgForm.querySelector('button').disabled = false;
     typingIndicator.textContent = ''; 
     socket.emit('joinRoom', id);
@@ -283,12 +227,16 @@ async function entrarChatPrivado(targetUserId, targetUserName) {
     if (unreadCounts[targetUserId]) { unreadCounts[targetUserId] = 0; renderUserList(globalUsersList); }
     activeChatContext = 'private';
     activeChatTarget = targetUserId;
-    document.querySelectorAll('#room-list li').forEach(l => l.classList.remove('active'));
-    headerTitle.innerText = `💬 Conversando com ${targetUserName}`;
+    
+    // --- RESPONSIVIDADE MOBILE ---
+    document.body.classList.add('mobile-chat-open'); // Abre o chat
+
+    headerTitle.innerText = `${targetUserName}`;
     document.querySelector('header').classList.add('dm-active');
-    backToRoomBtn.style.display = 'block'; 
+    backToRoomBtn.innerText = "Voltar";
+    
     msgInput.disabled = false; msgForm.querySelector('button').disabled = false;
-    msgsBox.innerHTML = '<div style="padding:20px; text-align:center; color:#888">Carregando histórico...</div>';
+    msgsBox.innerHTML = '<div style="padding:20px; text-align:center; color:#888">Carregando...</div>';
     typingIndicator.textContent = ''; 
     const res = await fetch(`${API_URL}/api/private-messages/${targetUserId}`, { headers: { 'Authorization': `Bearer ${token}` }});
     const msgs = await res.json();
@@ -310,7 +258,6 @@ function renderUserList(users) {
             li.classList.add('is-me');
         } else {
             li.onclick = () => entrarChatPrivado(u.id, u.username);
-            li.title = "Enviar Mensagem Privada";
             if (unreadCounts[u.id] && unreadCounts[u.id] > 0) {
                 const badge = document.createElement('span');
                 badge.classList.add('notification-badge');
@@ -323,27 +270,21 @@ function renderUserList(users) {
     });
 }
 
+// ... (Funções de Upload e RenderMessage - Mantidas iguais) ...
 function handleFileSelect(e) {
     const file = e.target.files[0];
     if (file) {
         selectedFile = file;
         const reader = new FileReader();
-        reader.onload = (e) => {
-            imagePreview.src = e.target.result;
-            previewContainer.style.display = 'block';
-        };
+        reader.onload = (e) => { imagePreview.src = e.target.result; previewContainer.style.display = 'block'; };
         reader.readAsDataURL(file);
         msgForm.querySelector('button').disabled = false;
     }
 }
-
 function cancelFileSelect() {
-    selectedFile = null;
-    fileInput.value = '';
-    previewContainer.style.display = 'none';
+    selectedFile = null; fileInput.value = ''; previewContainer.style.display = 'none';
     if(msgInput.value.trim() === '') msgForm.querySelector('button').disabled = true;
 }
-
 function renderMessage(msg, isPrivate) {
     const div = document.createElement('div');
     const euSou = msg.user_name === localStorage.getItem('chat_user');
@@ -353,23 +294,19 @@ function renderMessage(msg, isPrivate) {
     userSpan.classList.add('user');
     userSpan.textContent = msg.user_name + (isPrivate ? ' • Privado' : '');
     div.appendChild(userSpan);
-
     if (msg.image_url) {
         const img = document.createElement('img');
         img.src = API_URL + msg.image_url; 
         img.onclick = () => window.open(API_URL + msg.image_url, '_blank'); 
         div.appendChild(img);
     }
-
     if (msg.text) {
         const textNode = document.createTextNode(" " + msg.text);
         div.appendChild(textNode);
     }
-
     msgsBox.appendChild(div);
     msgsBox.scrollTop = msgsBox.scrollHeight;
 }
-
 async function handleMessageSubmit(e) {
     e.preventDefault();
     const text = msgInput.value;
@@ -380,33 +317,20 @@ async function handleMessageSubmit(e) {
         formData.append('image', selectedFile);
         try {
             const res = await fetch(`${API_URL}/api/upload`, {
-                method: 'POST',
-                headers: { 'Authorization': `Bearer ${token}` },
-                body: formData
+                method: 'POST', headers: { 'Authorization': `Bearer ${token}` }, body: formData
             });
             if (!res.ok) throw new Error('Falha no upload');
             const data = await res.json();
             imageUrl = data.imageUrl;
-        } catch (err) {
-            alert("Erro ao enviar imagem: " + err.message);
-            return;
-        }
+        } catch (err) { alert("Erro ao enviar imagem: " + err.message); return; }
     }
-    const payload = { 
-        roomId: activeChatTarget, 
-        toUserId: activeChatTarget,
-        text: text,
-        imageUrl: imageUrl 
-    };
+    const payload = { roomId: activeChatTarget, toUserId: activeChatTarget, text: text, imageUrl: imageUrl };
     if (activeChatContext === 'room') socket.emit('sendMessage', payload);
     else socket.emit('sendPrivateMessage', payload);
     clearTimeout(typingTimeout);
     socket.emit('stopTyping', activeChatTarget);
-    msgInput.value = '';
-    cancelFileSelect();
-    msgForm.querySelector('button').disabled = true;
+    msgInput.value = ''; cancelFileSelect(); msgForm.querySelector('button').disabled = true;
 }
-
 function handleTyping() {
     if(msgInput.value.trim() !== '') msgForm.querySelector('button').disabled = false;
     if (activeChatContext === 'room') socket.emit('typing', activeChatTarget);
