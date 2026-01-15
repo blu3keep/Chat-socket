@@ -14,6 +14,7 @@
             <h2 id="auth-title">Login</h2>
             <form id="auth-form">
                 <input type="text" id="username-input" placeholder="Usuário" required>
+                <input type="email" id="email-input" placeholder="E-mail" style="display:none;">
                 <input type="password" id="password-input" placeholder="Senha" required>
                 
                 <div class="cf-turnstile" data-sitekey="0x4AAAAAACC6DTghVIo-u0DN" data-theme="light"></div>
@@ -34,12 +35,16 @@
                 <div class="avatar-circle"><span id="user-initial">U</span></div>
                 <div class="user-details"><span id="display-username">Usuário</span><span class="status-text">Online</span></div>
             </div>
+            
             <div class="sidebar-actions">
                 <button id="theme-btn">Modo Escuro</button>
+                <button id="change-pass-btn" title="Alterar Senha">🔑</button>
                 <button id="logout-btn">Sair</button>
             </div>
+            
             <div class="section-label">SALAS DISPONÍVEIS</div>
             <ul id="room-list" class="nav-list"></ul>
+            
             <div class="online-users-section">
                 <div class="section-label">ONLINE AGORA <span id="online-count" class="badge">0</span></div>
                 <ul id="users-list" class="nav-list"></ul>
@@ -59,7 +64,7 @@
             <div id="image-preview-container" style="display:none;">
                 <div class="preview-box">
                     <img id="image-preview" src="" alt="Preview">
-                    <button id="cancel-image-btn">X</button>
+                    <button id="cancel-image-btn" type="button">X</button>
                 </div>
             </div>
 
@@ -73,6 +78,21 @@
                 </button>
             </form>
         </main>
+    </div>
+
+    <div id="password-modal" class="modal-overlay" style="display: none;">
+        <div class="modal-box">
+            <h3>Alterar Senha</h3>
+            <form id="change-password-form">
+                <input type="password" id="current-pass" placeholder="Senha Atual" required>
+                <input type="password" id="new-pass" placeholder="Nova Senha" required>
+                <div class="modal-buttons">
+                    <button type="button" id="cancel-pass-btn" class="secondary-btn">Cancelar</button>
+                    <button type="submit" class="primary-btn">Salvar</button>
+                </div>
+            </form>
+            <p id="pass-msg" style="display: none; margin-top: 10px; font-size: 0.9rem;"></p>
+        </div>
     </div>
 
     <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>

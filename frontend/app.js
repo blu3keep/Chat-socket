@@ -1,4 +1,4 @@
-const API_URL = 'https://chat.seudominio.com'; // <--- SEU DOMINIO
+const API_URL = 'https://chat.seudominio.com'; // <--- ATUALIZE COM SEU DOMÍNIO
 let socket, token;
 
 // --- ESTADO ---
@@ -12,7 +12,7 @@ let globalRoomsList = [];
 let selectedFile = null;
 let isRegister = false;
 
-// ... (Elementos DOM - Mantidos iguais ao anterior) ...
+// Elementos
 let authOverlay, chatContainer, authForm, authTitle, authSubmitBtn, toggleAuthBtn, 
     authError, switchMsg, usernameInput, passwordInput; 
 let roomList, msgsBox, msgInput, msgForm, typingIndicator, usersList, 
@@ -20,7 +20,7 @@ let roomList, msgsBox, msgInput, msgForm, typingIndicator, usersList,
     previewContainer, imagePreview, cancelImageBtn;
 
 document.addEventListener('DOMContentLoaded', () => {
-    // Carregar elementos
+    // 1. CARREGAR ELEMENTOS
     authOverlay = document.getElementById('auth-overlay');
     chatContainer = document.getElementById('chat-container');
     authForm = document.getElementById('auth-form');
@@ -40,12 +40,16 @@ document.addEventListener('DOMContentLoaded', () => {
     onlineCount = document.getElementById('online-count');
     themeBtn = document.getElementById('theme-btn');
     headerTitle = document.getElementById('chat-header-title');
+    
+    // BOTÃO VOLTAR (MOBILE)
     backToRoomBtn = document.getElementById('back-to-room-btn');
+    
     fileInput = document.getElementById('file-input');
     previewContainer = document.getElementById('image-preview-container');
     imagePreview = document.getElementById('image-preview');
     cancelImageBtn = document.getElementById('cancel-image-btn');
 
+    // 2. TEMA
     if (localStorage.getItem('theme') === 'dark') {
         document.body.classList.add('dark-mode');
         themeBtn.innerText = 'Modo Claro';
@@ -53,6 +57,7 @@ document.addEventListener('DOMContentLoaded', () => {
         themeBtn.innerText = 'Modo Escuro';
     }
 
+    // 3. LISTENERS
     themeBtn.addEventListener('click', toggleTheme);
     toggleAuthBtn.addEventListener('click', (e) => {
         e.preventDefault(); isRegister = !isRegister; updateAuthUI();
@@ -65,39 +70,79 @@ document.addEventListener('DOMContentLoaded', () => {
     fileInput.addEventListener('change', handleFileSelect);
     cancelImageBtn.addEventListener('click', cancelFileSelect);
     
-    // --- BOTÃO VOLTAR (MOBILE) ---
+    // LISTENER VOLTAR MOBILE
     backToRoomBtn.addEventListener('click', () => {
-        // Remove a classe que força o chat a aparecer, voltando para a lista
         document.body.classList.remove('mobile-chat-open');
-        // No Desktop, isso não faz nada visualmente porque o CSS ignora
-        // Se estiver em DM, volta pra sala padrão também
-        if(activeChatContext === 'private' && globalRoomsList.length > 0) {
-             entrarSala(globalRoomsList[0].id, globalRoomsList[0].name);
-        }
     });
 
+    // 4. CHECK LOGIN
     token = localStorage.getItem('chat_token');
-    if (token) iniciarChat();
-    else { authOverlay.style.display = 'flex'; updateAuthUI(); }
+    if (token) {
+        iniciarChat();
+    } else {
+        authOverlay.style.display = 'flex';
+        updateAuthUI(); 
+    }
+
+    // --- LÓGICA DE TROCA DE SENHA ---
+    const passModal = document.getElementById('password-modal');
+    const passForm = document.getElementById('change-password-form');
+    const passMsg = document.getElementById('pass-msg');
+
+    const changePassBtn = document.getElementById('change-pass-btn');
+    if (changePassBtn) { // Só adiciona se o botão existir (no HTML novo)
+        changePassBtn.addEventListener('click', () => {
+            passModal.style.display = 'flex';
+            passForm.reset();
+            passMsg.style.display = 'none';
+        });
+    }
+
+    document.getElementById('cancel-pass-btn').addEventListener('click', () => {
+        passModal.style.display = 'none';
+    });
+
+    passForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const currentPass = document.getElementById('current-pass').value;
+        const newPass = document.getElementById('new-pass').value;
+        try {
+            const res = await fetch(`${API_URL}/api/auth/change-password`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                body: JSON.stringify({ currentPassword: currentPass, newPassword: newPass })
+            });
+            const data = await res.json();
+            passMsg.style.display = 'block';
+            passMsg.innerText = data.message || data.error;
+            passMsg.style.color = res.ok ? 'green' : 'red';
+            if (res.ok) setTimeout(() => passModal.style.display = 'none', 2000);
+        } catch (err) {
+            passMsg.innerText = "Erro ao conectar."; passMsg.style.color = 'red'; passMsg.style.display = 'block';
+        }
+    });
 });
 
-// ... (Funções de Auth e Theme - Mantidas iguais) ...
 function toggleTheme() {
     document.body.classList.toggle('dark-mode');
     const isDark = document.body.classList.contains('dark-mode');
     localStorage.setItem('theme', isDark ? 'dark' : 'light');
     themeBtn.innerText = isDark ? 'Modo Claro' : 'Modo Escuro';
 }
+
 function updateAuthUI() {
     authError.style.display = 'none';
+    authError.className = ''; 
+    authError.innerText = '';
     if (isRegister) {
-        authTitle.innerText = 'Cadastro'; authSubmitBtn.innerText = 'Cadastrar'; 
+        authTitle.innerText = 'Cadastro'; authSubmitBtn.innerText = 'Cadastrar';
         if(switchMsg) switchMsg.innerText = 'Já tem conta?'; toggleAuthBtn.innerText = 'Faça Login';
     } else {
-        authTitle.innerText = 'Login'; authSubmitBtn.innerText = 'Entrar'; 
+        authTitle.innerText = 'Login'; authSubmitBtn.innerText = 'Entrar';
         if(switchMsg) switchMsg.innerText = 'Não tem conta?'; toggleAuthBtn.innerText = 'Cadastre-se';
     }
 }
+
 async function handleAuthSubmit(e) {
     e.preventDefault();
     const user = usernameInput.value; const pass = passwordInput.value;
@@ -113,17 +158,17 @@ async function handleAuthSubmit(e) {
         const data = await res.json();
         if (!res.ok) { if (window.turnstile) window.turnstile.reset(); throw new Error(data.error); }
         if (isRegister) {
-            authError.innerText = "✅ Sucesso! Redirecionando..."; authError.className = "auth-success"; authError.style.display = "block";
-            setTimeout(() => { isRegister = false; updateAuthUI(); passwordInput.value = ''; if (window.turnstile) window.turnstile.reset(); }, 1500);
+            authError.innerText = "✅ Cadastro ok! Redirecionando..."; authError.className = "auth-success"; authError.style.display = "block";
+            setTimeout(() => { isRegister = false; updateAuthUI(); usernameInput.value = user; passwordInput.value = ''; if (window.turnstile) window.turnstile.reset(); }, 1500);
         } else {
             localStorage.setItem('chat_token', data.token); localStorage.setItem('chat_user', data.username); localStorage.setItem('chat_userid', data.userId);
             token = data.token; iniciarChat();
         }
     } catch (err) { authError.className = ""; authError.innerText = err.message; authError.style.display = 'block'; authError.style.color = '#ff4d4d'; }
 }
+
 function logout() { localStorage.clear(); location.reload(); }
 
-// ... (Funções de Chat) ...
 function iniciarChat() {
     authOverlay.style.display = 'none';
     chatContainer.style.display = 'flex';
@@ -173,8 +218,7 @@ async function carregarSalas() {
     const rooms = await res.json();
     globalRoomsList = rooms;
     renderRoomList();
-    // No mobile, não entra automaticamente na sala para deixar o usuário escolher
-    // Mas no desktop, podemos manter. Vamos fazer uma verificação simples de largura
+    // No mobile, não entra automaticamente. No desktop (>768px), entra.
     if (!activeChatTarget && rooms.length > 0 && window.innerWidth > 768) {
         entrarSala(rooms[0].id, rooms[0].name);
     }
@@ -204,14 +248,11 @@ async function entrarSala(id, name) {
     activeChatTarget = id;
     renderRoomList();
     
-    // --- RESPONSIVIDADE MOBILE ---
+    // --- LÓGICA MOBILE ---
     document.body.classList.add('mobile-chat-open'); // Abre o chat
     
     headerTitle.innerText = `# ${name}`;
     document.querySelector('header').classList.remove('dm-active');
-    
-    // Texto do botão voltar muda dependendo do contexto? Não, sempre "Voltar"
-    backToRoomBtn.innerText = "Voltar";
     
     msgInput.disabled = false; msgForm.querySelector('button').disabled = false;
     typingIndicator.textContent = ''; 
@@ -228,12 +269,11 @@ async function entrarChatPrivado(targetUserId, targetUserName) {
     activeChatContext = 'private';
     activeChatTarget = targetUserId;
     
-    // --- RESPONSIVIDADE MOBILE ---
+    // --- LÓGICA MOBILE ---
     document.body.classList.add('mobile-chat-open'); // Abre o chat
 
     headerTitle.innerText = `${targetUserName}`;
     document.querySelector('header').classList.add('dm-active');
-    backToRoomBtn.innerText = "Voltar";
     
     msgInput.disabled = false; msgForm.querySelector('button').disabled = false;
     msgsBox.innerHTML = '<div style="padding:20px; text-align:center; color:#888">Carregando...</div>';
@@ -270,7 +310,6 @@ function renderUserList(users) {
     });
 }
 
-// ... (Funções de Upload e RenderMessage - Mantidas iguais) ...
 function handleFileSelect(e) {
     const file = e.target.files[0];
     if (file) {
